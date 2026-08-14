@@ -1,8 +1,13 @@
 #!/bin/bash
 # A script which parses through a postgres db and gets table information along with per table information
 
+function runPsql() {
+  PGPASSWORD="$password" psql -X -v ON_ERROR_STOP=1 \
+    -h "$host" -U "$username" -d "$database" "$@"
+}
+
 function fetchDetails() {
-  mkdir -p $1 && psql -c "\d $1" $2 \
+  mkdir -p $1 && runPsql -c "\d $1" \
     | tee -a "$1/full-details.txt" \
     | grep '|' \
     | grep -vi 'column' \
@@ -19,13 +24,16 @@ if ! command -v psql >/dev/null 2>&1; then
   exit 1
 fi
 
+username="$1"
+password="$2"
+host="$3"
+database="$4"
+
 if ! cd /tmp/ || ! mkdir -p tables || ! cd tables; then
   echo "Unable to prepare /tmp/tables" >&2
   exit 1
 fi
-url="postgresql://$1:$2@$3/$4"
-tables=$(psql -Atc '\dt' $url | cut -d'|' -f2 | tee -a tables.txt | tr " " "\n")
-for i in ${tables[@]}; do fetchDetails "$i" "$url" & done
+tables=$(runPsql -Atc '\dt' | cut -d'|' -f2 | tee -a tables.txt | tr " " "\n")
+for i in ${tables[@]}; do fetchDetails "$i" & done
 wait
 echo "DB Scraped!!"
-
