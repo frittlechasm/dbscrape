@@ -7,11 +7,14 @@ function runPsql() {
 }
 
 function fetchDetails() {
-  mkdir -p $1 && runPsql -c "\d $1" \
-    | tee -a "$1/full-details.txt" \
+  local relation="$1"
+  local outputDir="$2"
+
+  mkdir -p -- "$outputDir" && runPsql -c "\d $relation" \
+    | tee -a "$outputDir/full-details.txt" \
     | grep '|' \
     | grep -vi 'column' \
-    | cut -d'|' -f1 > "$1/columns.txt"
+    | cut -d'|' -f1 > "$outputDir/columns.txt"
 }
 
 if [ "$#" -ne 4 ]; then
@@ -33,7 +36,36 @@ if ! cd /tmp/ || ! mkdir -p tables || ! cd tables; then
   echo "Unable to prepare /tmp/tables" >&2
   exit 1
 fi
-tables=$(runPsql -Atc '\dt' | cut -d'|' -f2 | tee -a tables.txt | tr " " "\n")
-for i in ${tables[@]}; do fetchDetails "$i" & done
+
+tableQuery="
+SELECT schemaname, tablename, format('%I.%I', schemaname, tablename)
+FROM pg_catalog.pg_tables
+WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY schemaname, tablename;
+"
+
+while IFS='|' read -r schema table relation; do
+  case "$schema" in
+    ""|*[!A-Za-z0-9_]*)
+      echo "Unsupported schema name for output: $schema" >&2
+      exit 1
+      ;;
+  esac
+  case "$table" in
+    ""|*[!A-Za-z0-9_]*)
+      echo "Unsupported table name for output: $table" >&2
+      exit 1
+      ;;
+  esac
+
+  if [ "$schema" = "public" ]; then
+    outputDir="$table"
+  else
+    outputDir="$schema.$table"
+  fi
+
+  printf "%s\n" "$relation" | tee -a tables.txt >/dev/null
+  fetchDetails "$relation" "$outputDir" &
+done < <(runPsql -At -F '|' -c "$tableQuery")
 wait
 echo "DB Scraped!!"
