@@ -9,11 +9,23 @@ function fetchDetails() {
     | cut -d'|' -f1 > "$1/columns.txt"
 }
 
-cd /tmp/ && mkdir -p tables && cd tables
+if [ "$#" -ne 4 ]; then
+  echo "Usage: dbscrape <username> <password> <host> <database>" >&2
+  exit 1
+fi
+
+if ! command -v psql >/dev/null 2>&1; then
+  echo "Missing required command: psql" >&2
+  exit 1
+fi
+
+if ! cd /tmp/ || ! mkdir -p tables || ! cd tables; then
+  echo "Unable to prepare /tmp/tables" >&2
+  exit 1
+fi
 url="postgresql://$1:$2@$3/$4"
 tables=$(psql -Atc '\dt' $url | cut -d'|' -f2 | tee -a tables.txt | tr " " "\n")
 for i in ${tables[@]}; do fetchDetails "$i" "$url" & done
 wait
 echo "DB Scraped!!"
-
 

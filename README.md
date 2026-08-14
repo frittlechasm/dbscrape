@@ -3,3 +3,10 @@
 - Currently **_only supports Postgres Databases_**
 - Files are generated in the `/tmp` directory.
 
+## Usage
+
+`dbscrape` requires the PostgreSQL `psql` client and exactly four arguments:
+
+```bash
+./dbscrape <username> <password> <host> <database>
+```
