@@ -1,6 +1,7 @@
 #!/bin/bash
 # A script which parses through a postgres db and gets table information along with per table information
 
+# Propagate a failed psql command through pipelines that redirect its output.
 set -o pipefail
 
 function cleanupRunDir() {
@@ -20,6 +21,7 @@ function validateOutputTarget() {
   fi
 }
 
+# Publish only a complete scrape and restore the previous snapshot if the move fails.
 function publishSnapshot() {
   local backupRoot
   local previous
@@ -45,6 +47,7 @@ function publishSnapshot() {
   return 1
 }
 
+# Wait for every worker so one failure does not leave sibling jobs running.
 function waitForJobs() {
   local pid
   local status=0
@@ -55,6 +58,7 @@ function waitForJobs() {
   return "$status"
 }
 
+# PostgreSQL returns identifiers as hex so delimiters and path characters stay inert in Bash.
 function validateHexIdentifier() {
   local value="$1"
 
@@ -69,6 +73,7 @@ function appendDecodedHex() {
   local outputFile="$2"
   local byte
 
+  # Consume one encoded byte, represented by two hex characters, per iteration.
   while [ -n "$hex" ]; do
     byte="${hex%${hex#??}}"
     hex="${hex#??}"
@@ -94,6 +99,7 @@ function fetchDetails() {
   local columnsQuery
   local detailsQuery
 
+  # Decode names inside psql, then quote them as identifiers before passing them to \d.
   detailsQuery="
 SELECT pg_catalog.convert_from(pg_catalog.decode(:'schema_hex', 'hex'), 'UTF8') AS schema_name,
        pg_catalog.convert_from(pg_catalog.decode(:'table_hex', 'hex'), 'UTF8') AS table_name
@@ -198,6 +204,8 @@ if ! mkdir "$outputRoot" || ! cd "$outputRoot" \
   exit 1
 fi
 
+# Find ordinary tables, create readable folder names, resolve collisions, and
+# hex-encode identifier text before Bash parses the result.
 tableQuery="
 WITH ordinary_tables AS (
   SELECT n.nspname AS schema_name, c.relname AS table_name
@@ -330,6 +338,9 @@ fi
 pids=()
 batchSize=0
 maxJobs=5
+# IFS='|' makes read split each record on pipes into the five named variables.
+# -r keeps backslashes literal instead of treating them as escape characters.
+# Validate every record before starting workers to avoid partially written results.
 while IFS='|' read -r schemaHex tableHex relationHex outputDir mappingHex; do
   if ! validateHexIdentifier "$schemaHex" \
     || ! validateHexIdentifier "$tableHex" \
@@ -346,6 +357,7 @@ while IFS='|' read -r schemaHex tableHex relationHex outputDir mappingHex; do
   esac
 done < "$recordsFile"
 
+# Read the validated records again and scrape at most five tables concurrently.
 while IFS='|' read -r schemaHex tableHex relationHex outputDir mappingHex; do
   appendDecodedHex "$relationHex" tables.txt || exit 1
   appendDecodedHex "$mappingHex" table-paths.jsonl || exit 1
