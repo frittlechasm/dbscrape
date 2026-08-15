@@ -68,6 +68,17 @@ if [ -n "${TEST_STATE_DIR:-}" ]; then
   printf "%s\n" "$commandText" >> "$TEST_STATE_DIR/calls"
 fi
 
+function encodeText() {
+  LC_ALL=C od -An -t x1 | tr -d ' \n'
+}
+
+function emitRecord() {
+  local mappingHex
+
+  mappingHex="$(printf "%s" "$5" | encodeText)" || exit 1
+  printf "%s|%s|%s|%s|%s\n" "$1" "$2" "$3" "$4" "$mappingHex"
+}
+
 case "$commandText" in
   *pg_catalog.pg_class*)
     case "$commandText" in
@@ -85,27 +96,33 @@ case "$commandText" in
       empty)
         exit 0
         ;;
+      normalized)
+        emitRecord "7075626c6963" "4f726465722d4974656d73" "7075626c69632e224f726465722d4974656d7322" "order-items" '{"directory" : "order-items", "schema" : "public", "table" : "Order-Items"}'
+        emitRecord "7075626c6963" "706174682f7461626c65" "7075626c69632e22706174682f7461626c6522" "path-table" '{"directory" : "path-table", "schema" : "public", "table" : "path/table"}'
+        emitRecord "7075626c6963" "3130302520646f6e65" "7075626c69632e223130302520646f6e6522" "100%-done" '{"directory" : "100%-done", "schema" : "public", "table" : "100% done"}'
+        emitRecord "7075626c6963" "636166c3a9" "7075626c69632e22636166c3a922" "cafe" '{"directory" : "cafe", "schema" : "public", "table" : "café"}'
+        ;;
       identifiers)
-        printf "7075626c6963|4f72646572204974656d73|7075626c69632e224f72646572204974656d7322|encoded\n"
-        printf "7075626c6963|4f726465722d4974656d73|7075626c69632e224f726465722d4974656d7322|encoded\n"
-        printf "73616c65732064617461|706174682f7461626c65|2273616c65732064617461222e22706174682f7461626c6522|encoded\n"
-        printf "7075626c6963|2e|7075626c69632e222e22|encoded\n"
-        printf "7075626c6963|636166c3a9|7075626c69632e22636166c3a922|encoded\n"
-        printf "7075626c6963|3130302520646f6e65|7075626c69632e223130302520646f6e6522|encoded\n"
-        printf "7075626c6963|6c696e650a627265616b|7075626c69632e226c696e650a627265616b22|encoded\n"
-        printf "7075626c6963|736179226869|7075626c69632e227361792222686922|encoded\n"
+        emitRecord "7075626c6963" "4f72646572204974656d73" "7075626c69632e224f72646572204974656d7322" "order-items--03000deb" '{"directory" : "order-items--03000deb", "schema" : "public", "table" : "Order Items"}'
+        emitRecord "7075626c6963" "4f726465722d4974656d73" "7075626c69632e224f726465722d4974656d7322" "order-items--62b48187" '{"directory" : "order-items--62b48187", "schema" : "public", "table" : "Order-Items"}'
+        emitRecord "73616c65732064617461" "706174682f7461626c65" "2273616c65732064617461222e22706174682f7461626c6522" "sales-data.path-table" '{"directory" : "sales-data.path-table", "schema" : "sales data", "table" : "path/table"}'
+        emitRecord "7075626c6963" "2e" "7075626c69632e222e22" "table" '{"directory" : "table", "schema" : "public", "table" : "."}'
+        emitRecord "7075626c6963" "636166c3a9" "7075626c69632e22636166c3a922" "cafe" '{"directory" : "cafe", "schema" : "public", "table" : "café"}'
+        emitRecord "7075626c6963" "3130302520646f6e65" "7075626c69632e223130302520646f6e6522" "100%-done" '{"directory" : "100%-done", "schema" : "public", "table" : "100% done"}'
+        emitRecord "7075626c6963" "6c696e650a627265616b" "7075626c69632e226c696e650a627265616b22" "line-break" '{"directory" : "line-break", "schema" : "public", "table" : "line\nbreak"}'
+        emitRecord "7075626c6963" "736179226869" "7075626c69632e227361792222686922" "say-hi" '{"directory" : "say-hi", "schema" : "public", "table" : "say\"hi"}'
         ;;
       replacement)
-        printf "7075626c6963|6f7264657273|7075626c69632e6f7264657273|simple\n"
+        emitRecord "7075626c6963" "6f7264657273" "7075626c69632e6f7264657273" "orders" '{"directory" : "orders", "schema" : "public", "table" : "orders"}'
         ;;
       concurrency)
         for number in 1 2 3 4 5 6; do
-          printf "7075626c6963|7461626c653%s|7075626c69632e7461626c653%s|simple\n" "$number" "$number"
+          emitRecord "7075626c6963" "7461626c653$number" "7075626c69632e7461626c653$number" "table$number" "{\"directory\" : \"table$number\", \"schema\" : \"public\", \"table\" : \"table$number\"}"
         done
         ;;
       *)
-        printf "7075626c6963|7573657273|7075626c69632e7573657273|simple\n"
-        printf "6175646974|4576656e7473|61756469742e224576656e747322|simple\n"
+        emitRecord "7075626c6963" "7573657273" "7075626c69632e7573657273" "users" '{"directory" : "users", "schema" : "public", "table" : "users"}'
+        emitRecord "6175646974" "4576656e7473" "61756469742e224576656e747322" "audit.events" '{"directory" : "audit.events", "schema" : "audit", "table" : "Events"}'
         ;;
     esac
     ;;

@@ -120,7 +120,7 @@ function testStructuredMetadata() {
   runCli happy user localhost:5433 app
   assertEqual 0 "$CLI_STATUS" "metadata status" || return 1
   assertFile /tmp/tables/users/full-details.txt || return 1
-  assertFile /tmp/tables/audit.Events/columns.txt || return 1
+  assertFile /tmp/tables/audit.events/columns.txt || return 1
   assertEqual "column_id" "$(sed -n '1p' /tmp/tables/users/columns.txt)" "first column" || return 1
   assertContains 'audit."Events"' /tmp/tables/tables.txt || return 1
   assertContains "DB Scraped!!" "$TEST_STATE_DIR/stdout"
@@ -157,16 +157,28 @@ function testLegalIdentifiers() {
   beginCase identifiers
   runCli identifiers user localhost app
   assertEqual 0 "$CLI_STATUS" "legal identifier status" || return 1
-  assertFile /tmp/tables/.identifiers/public/Order-Items/columns.txt || return 1
-  assertFile /tmp/tables/.identifiers/public/Order%2dItems/columns.txt || return 1
-  assertFile /tmp/tables/.identifiers/sales-data/path%2ftable/columns.txt || return 1
-  assertFile /tmp/tables/.identifiers/public/%2e/columns.txt || return 1
-  assertFile /tmp/tables/.identifiers/public/caf%c3%a9/columns.txt || return 1
-  assertFile /tmp/tables/.identifiers/public/100%25-done/columns.txt || return 1
-  assertFile /tmp/tables/.identifiers/public/line%0abreak/columns.txt || return 1
-  assertFile /tmp/tables/.identifiers/public/say%22hi/columns.txt || return 1
+  assertFile /tmp/tables/order-items--03000deb/columns.txt || return 1
+  assertFile /tmp/tables/order-items--62b48187/columns.txt || return 1
+  assertFile /tmp/tables/sales-data.path-table/columns.txt || return 1
+  assertFile /tmp/tables/table/columns.txt || return 1
+  assertFile /tmp/tables/cafe/columns.txt || return 1
+  assertFile /tmp/tables/100%-done/columns.txt || return 1
+  assertFile /tmp/tables/line-break/columns.txt || return 1
+  assertFile /tmp/tables/say-hi/columns.txt || return 1
   assertContains 'public."Order Items"' /tmp/tables/tables.txt || return 1
-  assertContains '"sales data"."path/table"' /tmp/tables/tables.txt
+  assertContains '"sales data"."path/table"' /tmp/tables/tables.txt || return 1
+  assertContains '"directory" : "order-items--03000deb"' /tmp/tables/table-paths.jsonl || return 1
+  assertContains '"table" : "café"' /tmp/tables/table-paths.jsonl
+}
+
+function testNormalizedFolderNames() {
+  beginCase normalized
+  runCli normalized user localhost app
+  assertEqual 0 "$CLI_STATUS" "normalized folder status" || return 1
+  assertFile /tmp/tables/order-items/columns.txt || return 1
+  assertFile /tmp/tables/path-table/columns.txt || return 1
+  assertFile /tmp/tables/100%-done/columns.txt || return 1
+  assertFile /tmp/tables/cafe/columns.txt
 }
 
 function testConcurrencyLimit() {
@@ -182,7 +194,8 @@ function testEmptyDatabase() {
   runCli empty user localhost app
   assertEqual 0 "$CLI_STATUS" "empty database status" || return 1
   assertFile /tmp/tables/tables.txt || return 1
-  assertEqual 0 "$(wc -l < /tmp/tables/tables.txt | tr -d ' ')" "empty table list"
+  assertEqual 0 "$(wc -l < /tmp/tables/tables.txt | tr -d ' ')" "empty table list" || return 1
+  assertEqual 0 "$(wc -l < /tmp/tables/table-paths.jsonl | tr -d ' ')" "empty path manifest"
 }
 
 function runTest() {
@@ -204,6 +217,7 @@ runTest "structured metadata" testStructuredMetadata
 runTest "ordinary tables only" testOrdinaryTablesOnly
 runTest "snapshots and failures" testSnapshotsAndFailures
 runTest "legal PostgreSQL identifiers" testLegalIdentifiers
+runTest "normalized folder names" testNormalizedFolderNames
 runTest "five-job concurrency limit" testConcurrencyLimit
 runTest "empty database" testEmptyDatabase
 

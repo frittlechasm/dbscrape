@@ -64,36 +64,6 @@ function validateHexIdentifier() {
   [ $((${#value} % 2)) -eq 0 ]
 }
 
-function encodePathComponent() {
-  local hex="$1"
-  local byte
-  local character
-  local encoded=""
-
-  while [ -n "$hex" ]; do
-    byte="${hex%${hex#??}}"
-    hex="${hex#??}"
-    case "$byte" in
-      20)
-        encoded="${encoded}-"
-        ;;
-      2e|3[0-9]|4[1-9a-f]|5[0-9a]|5f|6[1-9a-f]|7[0-9a])
-        printf -v character "%b" "\\x$byte"
-        encoded="${encoded}${character}"
-        ;;
-      *)
-        encoded="${encoded}%${byte}"
-        ;;
-    esac
-  done
-
-  case "$encoded" in
-    .) encoded="%2e" ;;
-    ..) encoded="%2e%2e" ;;
-  esac
-  printf "%s\n" "$encoded"
-}
-
 function appendDecodedHex() {
   local hex="$1"
   local outputFile="$2"
@@ -222,30 +192,134 @@ runDir="$(mktemp -d /tmp/dbscrape.XXXXXX)" || {
 outputRoot="$runDir/tables"
 recordsFile="$runDir/table-records"
 trap cleanupRunDir EXIT
-if ! mkdir "$outputRoot" || ! cd "$outputRoot" || ! : > tables.txt; then
+if ! mkdir "$outputRoot" || ! cd "$outputRoot" \
+  || ! : > tables.txt || ! : > table-paths.jsonl; then
   echo "Unable to prepare staged table output" >&2
   exit 1
 fi
 
 tableQuery="
-SELECT pg_catalog.encode(pg_catalog.convert_to(n.nspname, 'UTF8'), 'hex'),
-       pg_catalog.encode(pg_catalog.convert_to(c.relname, 'UTF8'), 'hex'),
+WITH ordinary_tables AS (
+  SELECT n.nspname AS schema_name, c.relname AS table_name
+  FROM pg_catalog.pg_class AS c
+  JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+  WHERE c.relkind = 'r'
+    AND NOT c.relispartition
+    AND n.nspname <> 'information_schema'
+    AND n.nspname !~ '^pg_'
+),
+expanded_names AS (
+  SELECT schema_name,
+         table_name,
+         pg_catalog.replace(
+           pg_catalog.replace(
+             pg_catalog.replace(pg_catalog.lower(schema_name), 'æ', 'ae'),
+             'œ', 'oe'
+           ),
+           'ß', 'ss'
+         ) AS expanded_schema,
+         pg_catalog.replace(
+           pg_catalog.replace(
+             pg_catalog.replace(pg_catalog.lower(table_name), 'æ', 'ae'),
+             'œ', 'oe'
+           ),
+           'ß', 'ss'
+         ) AS expanded_table
+  FROM ordinary_tables
+),
+folded_names AS (
+  SELECT schema_name,
+         table_name,
+         pg_catalog.translate(
+           expanded_schema,
+           'áàâäãåāăąçćčďđéèêëēėęěíìîïīįłñńňóòôöõøōőŕřśšşťțúùûüūůűųýÿžźż',
+           'aaaaaaaaacccddeeeeeeeeiiiiiilnnnoooooooorrsssttuuuuuuuuyyzzz'
+         ) AS folded_schema,
+         pg_catalog.translate(
+           expanded_table,
+           'áàâäãåāăąçćčďđéèêëēėęěíìîïīįłñńňóòôöõøōőŕřśšşťțúùûüūůűųýÿžźż',
+           'aaaaaaaaacccddeeeeeeeeiiiiiilnnnoooooooorrsssttuuuuuuuuyyzzz'
+         ) AS folded_table
+  FROM expanded_names
+),
+slugs AS (
+  SELECT schema_name,
+         table_name,
+         COALESCE(
+           NULLIF(
+             pg_catalog.btrim(
+               pg_catalog.regexp_replace(folded_schema, '[^a-z0-9%]+', '-', 'g'),
+               '-'
+             ),
+             ''
+           ),
+           'schema'
+         ) AS schema_slug,
+         COALESCE(
+           NULLIF(
+             pg_catalog.btrim(
+               pg_catalog.regexp_replace(folded_table, '[^a-z0-9%]+', '-', 'g'),
+               '-'
+             ),
+             ''
+           ),
+           'table'
+         ) AS table_slug
+  FROM folded_names
+),
+base_paths AS (
+  SELECT schema_name,
+         table_name,
+         CASE
+           WHEN schema_name = 'public' THEN table_slug
+           ELSE schema_slug || '.' || table_slug
+         END AS base_path
+  FROM slugs
+),
+named_paths AS (
+  SELECT schema_name,
+         table_name,
+         base_path,
+         pg_catalog.count(*) OVER (PARTITION BY base_path) AS path_count,
+         pg_catalog.substr(
+           pg_catalog.md5(
+             pg_catalog.octet_length(schema_name)::text || ':' || schema_name
+             || pg_catalog.octet_length(table_name)::text || ':' || table_name
+           ),
+           1,
+           8
+         ) AS identity_hash
+  FROM base_paths
+),
+final_paths AS (
+  SELECT schema_name,
+         table_name,
+         CASE
+           WHEN path_count > 1 THEN base_path || '--' || identity_hash
+           ELSE base_path
+         END AS output_dir
+  FROM named_paths
+)
+SELECT pg_catalog.encode(pg_catalog.convert_to(schema_name, 'UTF8'), 'hex'),
+       pg_catalog.encode(pg_catalog.convert_to(table_name, 'UTF8'), 'hex'),
        pg_catalog.encode(
-         pg_catalog.convert_to(pg_catalog.format('%I.%I', n.nspname, c.relname), 'UTF8'),
+         pg_catalog.convert_to(pg_catalog.format('%I.%I', schema_name, table_name), 'UTF8'),
          'hex'
        ),
-       CASE
-         WHEN n.nspname ~ '^[A-Za-z0-9_]+$' AND c.relname ~ '^[A-Za-z0-9_]+$'
-           THEN 'simple'
-         ELSE 'encoded'
-       END
-FROM pg_catalog.pg_class AS c
-JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
-WHERE c.relkind = 'r'
-  AND NOT c.relispartition
-  AND n.nspname <> 'information_schema'
-  AND n.nspname !~ '^pg_'
-ORDER BY n.nspname, c.relname;
+       output_dir,
+       pg_catalog.encode(
+         pg_catalog.convert_to(
+           pg_catalog.json_build_object(
+             'directory', output_dir,
+             'schema', schema_name,
+             'table', table_name
+           )::text,
+           'UTF8'
+         ),
+         'hex'
+       )
+FROM final_paths
+ORDER BY schema_name, table_name;
 "
 
 if ! runPsql -At -F '|' -c "$tableQuery" > "$recordsFile"; then
@@ -256,35 +330,25 @@ fi
 pids=()
 batchSize=0
 maxJobs=5
-while IFS='|' read -r schemaHex tableHex relationHex pathMode; do
+while IFS='|' read -r schemaHex tableHex relationHex outputDir mappingHex; do
   if ! validateHexIdentifier "$schemaHex" \
     || ! validateHexIdentifier "$tableHex" \
-    || ! validateHexIdentifier "$relationHex"; then
+    || ! validateHexIdentifier "$relationHex" \
+    || ! validateHexIdentifier "$mappingHex"; then
     echo "Database returned an invalid encoded table identifier" >&2
     exit 1
   fi
-  case "$pathMode" in
-    simple|encoded) ;;
-    *)
-      echo "Database returned an invalid table path mode" >&2
+  case "$outputDir" in
+    ""|"."|".."|/*|*/*|*[!a-z0-9.%_-]*)
+      echo "Database returned an invalid normalized table path" >&2
       exit 1
       ;;
   esac
 done < "$recordsFile"
 
-while IFS='|' read -r schemaHex tableHex relationHex pathMode; do
-  encodedSchema="$(encodePathComponent "$schemaHex")" || exit 1
-  encodedTable="$(encodePathComponent "$tableHex")" || exit 1
-
-  if [ "$pathMode" = "encoded" ]; then
-    outputDir=".identifiers/$encodedSchema/$encodedTable"
-  elif [ "$encodedSchema" = "public" ]; then
-    outputDir="$encodedTable"
-  else
-    outputDir="$encodedSchema.$encodedTable"
-  fi
-
+while IFS='|' read -r schemaHex tableHex relationHex outputDir mappingHex; do
   appendDecodedHex "$relationHex" tables.txt || exit 1
+  appendDecodedHex "$mappingHex" table-paths.jsonl || exit 1
   fetchDetails "$schemaHex" "$tableHex" "$outputDir" &
   pids+=("$!")
   batchSize=$((batchSize + 1))

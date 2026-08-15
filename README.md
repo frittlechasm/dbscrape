@@ -31,31 +31,35 @@ A successful scrape produces the following layout:
 ```text
 /tmp/tables/
 ├── tables.txt
+├── table-paths.jsonl
 ├── users/
 │   ├── columns.txt
 │   └── full-details.txt
-└── audit.Events/
+└── audit.events/
     ├── columns.txt
     └── full-details.txt
 ```
 
 - `tables.txt` lists schema-qualified PostgreSQL relation names.
+- `table-paths.jsonl` maps each normalized directory to its exact schema and table names.
 - `columns.txt` lists column names in ordinal order.
 - `full-details.txt` contains the human-readable output from `psql`'s `\d` command.
 - Tables in `public` use their table name as the directory name.
 - Tables in other schemas use `<schema>.<table>`.
-- Identifiers requiring filesystem encoding use `.identifiers/<schema>/<table>`.
 
 Only ordinary, non-partition tables are included. Views, materialized views, foreign tables, partitioned tables, and their partitions are deferred for future support.
 
 All user schemas are inspected. PostgreSQL-managed schemas and `information_schema` are excluded.
 
-Every legal PostgreSQL identifier can be represented safely. Existing names containing only letters, numbers, and underscores retain their original output paths. Other names use readable percent encoding under `.identifiers`:
+Every legal PostgreSQL identifier is converted into a portable lowercase folder name:
 
-- Spaces become hyphens: `Order Items` becomes `Order-Items`.
-- Literal hyphens are encoded as `%2d`, preventing a collision with spaces.
-- Filesystem separators, control characters, percent signs, and non-ASCII UTF-8 bytes use `%xx` encoding.
-- The special path components `.` and `..` become `%2e` and `%2e%2e`.
+- Spaces, path separators, punctuation, and unsupported characters become hyphens.
+- Common Latin accents are folded to ASCII, so `café` becomes `cafe`.
+- Percent signs are retained, so `100% done` becomes `100%-done`.
+- Repeated or leading and trailing hyphens are collapsed or removed.
+- A name that contains no usable characters falls back to `table` or `schema`.
+
+Normalization can map different identifiers to the same name. When that happens, every conflicting directory receives a stable eight-character suffix. For example, `Order Items` and `Order-Items` become `order-items--03000deb` and `order-items--62b48187` in the same schema.
 
 ## Run behavior
 
