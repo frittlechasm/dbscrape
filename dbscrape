@@ -3,10 +3,46 @@
 
 set -o pipefail
 
-function cleanupRecords() {
-  if [ -n "$recordsFile" ] && [ -f "$recordsFile" ]; then
-    find "$recordsFile" -delete
+function cleanupRunDir() {
+  if [ -n "$runDir" ] && [ -d "$runDir" ]; then
+    find "$runDir" -depth -delete
   fi
+}
+
+function validateOutputTarget() {
+  if [ -L /tmp/tables ]; then
+    echo "Refusing to replace symbolic link: /tmp/tables" >&2
+    return 1
+  fi
+  if [ -e /tmp/tables ] && { [ ! -d /tmp/tables ] || [ ! -O /tmp/tables ]; }; then
+    echo "Refusing to replace unsafe output path: /tmp/tables" >&2
+    return 1
+  fi
+}
+
+function publishSnapshot() {
+  local backupRoot
+  local previous
+  local target="/tmp/tables"
+
+  validateOutputTarget || return 1
+  backupRoot="$(mktemp -d /tmp/dbscrape-backup.XXXXXX)" || return 1
+  previous="$backupRoot/tables"
+
+  if [ -e "$target" ] && ! mv "$target" "$previous"; then
+    find "$backupRoot" -depth -delete
+    return 1
+  fi
+
+  if mv "$outputRoot" "$target"; then
+    [ ! -e "$previous" ] || find "$previous" -depth -delete
+    find "$backupRoot" -depth -delete
+    return 0
+  fi
+
+  [ ! -e "$previous" ] || mv "$previous" "$target"
+  find "$backupRoot" -depth -delete
+  return 1
 }
 
 function waitForJobs() {
@@ -59,10 +95,21 @@ username="$1"
 password="$2"
 host="$3"
 database="$4"
-recordsFile=""
+runDir=""
 
-if ! cd /tmp/ || ! mkdir -p tables || ! cd tables; then
+if ! cd /tmp/ || ! validateOutputTarget; then
   echo "Unable to prepare /tmp/tables" >&2
+  exit 1
+fi
+runDir="$(mktemp -d /tmp/dbscrape.XXXXXX)" || {
+  echo "Unable to prepare a temporary output directory" >&2
+  exit 1
+}
+outputRoot="$runDir/tables"
+recordsFile="$runDir/table-records"
+trap cleanupRunDir EXIT
+if ! mkdir "$outputRoot" || ! cd "$outputRoot" || ! : > tables.txt; then
+  echo "Unable to prepare staged table output" >&2
   exit 1
 fi
 
@@ -73,11 +120,6 @@ WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
 ORDER BY schemaname, tablename;
 "
 
-recordsFile="$(mktemp /tmp/dbscrape-records.XXXXXX)" || {
-  echo "Unable to prepare a temporary table list" >&2
-  exit 1
-}
-trap cleanupRecords EXIT
 if ! runPsql -At -F '|' -c "$tableQuery" > "$recordsFile"; then
   echo "Unable to list database tables" >&2
   exit 1
@@ -123,6 +165,10 @@ done < "$recordsFile"
 
 if ! waitForJobs "${pids[@]}"; then
   echo "Database scrape failed" >&2
+  exit 1
+fi
+if ! publishSnapshot; then
+  echo "Unable to replace previous database results" >&2
   exit 1
 fi
 echo "DB Scraped!!"

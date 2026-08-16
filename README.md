@@ -18,3 +18,5 @@ All user-defined schemas are inspected. Tables in `public` retain their table-na
 Column names are read from `information_schema.columns` in ordinal order instead of being parsed from the human-readable `\d` output.
 
 Tables are scraped in batches of up to five. The command exits with a non-zero status and does not print the completion message if table discovery or any table scrape fails.
+
+Each run is staged in a private temporary directory. A successful run replaces the previous `/tmp/tables` snapshot, while a failed scrape leaves the previous snapshot unchanged. The command refuses to replace `/tmp/tables` when it is a symbolic link or is not owned by the current user.
