@@ -79,6 +79,7 @@ case "$commandText" in
         exit 0
         ;;
       unsafe)
+        printf "public|users|public.users\n"
         printf "public|../escape|public.\"../escape\"\n"
         ;;
       replacement)

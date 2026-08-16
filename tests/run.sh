@@ -127,9 +127,13 @@ function testSnapshotsAndFailures() {
 
 function testUnsafeNames() {
   beginCase unsafe
+  runCli replacement user "$TEST_EXPECTED_PASSWORD" localhost app
+  assertEqual 0 "$CLI_STATUS" "unsafe test seed status" || return 1
+
   runCli unsafe user "$TEST_EXPECTED_PASSWORD" localhost app
   [ "$CLI_STATUS" -ne 0 ] || return 1
-  assertNoFile /tmp/escape
+  assertNoFile /tmp/escape || return 1
+  assertFile /tmp/tables/orders/columns.txt
 }
 
 function testConcurrencyLimit() {

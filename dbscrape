@@ -181,7 +181,9 @@ while IFS='|' read -r schema table relation; do
       exit 1
       ;;
   esac
+done < "$recordsFile"
 
+while IFS='|' read -r schema table relation; do
   if [ "$schema" = "public" ]; then
     outputDir="$table"
   else
