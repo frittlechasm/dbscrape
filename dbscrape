@@ -55,6 +55,58 @@ function waitForJobs() {
   return "$status"
 }
 
+function validateHexIdentifier() {
+  local value="$1"
+
+  case "$value" in
+    ""|*[!0-9a-f]*) return 1 ;;
+  esac
+  [ $((${#value} % 2)) -eq 0 ]
+}
+
+function encodePathComponent() {
+  local hex="$1"
+  local byte
+  local character
+  local encoded=""
+
+  while [ -n "$hex" ]; do
+    byte="${hex%${hex#??}}"
+    hex="${hex#??}"
+    case "$byte" in
+      20)
+        encoded="${encoded}-"
+        ;;
+      2e|3[0-9]|4[1-9a-f]|5[0-9a]|5f|6[1-9a-f]|7[0-9a])
+        printf -v character "%b" "\\x$byte"
+        encoded="${encoded}${character}"
+        ;;
+      *)
+        encoded="${encoded}%${byte}"
+        ;;
+    esac
+  done
+
+  case "$encoded" in
+    .) encoded="%2e" ;;
+    ..) encoded="%2e%2e" ;;
+  esac
+  printf "%s\n" "$encoded"
+}
+
+function appendDecodedHex() {
+  local hex="$1"
+  local outputFile="$2"
+  local byte
+
+  while [ -n "$hex" ]; do
+    byte="${hex%${hex#??}}"
+    hex="${hex#??}"
+    printf "%b" "\\x$byte" >> "$outputFile" || return 1
+  done
+  printf "\n" >> "$outputFile"
+}
+
 function runPsql() {
   local connectionArgs=(-h "$host" -U "$username" -d "$database")
 
@@ -66,24 +118,33 @@ function runPsql() {
 }
 
 function fetchDetails() {
-  local schema="$1"
-  local table="$2"
-  local relation="$3"
-  local outputDir="$4"
+  local schemaHex="$1"
+  local tableHex="$2"
+  local outputDir="$3"
   local columnsQuery
+  local detailsQuery
+
+  detailsQuery="
+SELECT pg_catalog.convert_from(pg_catalog.decode(:'schema_hex', 'hex'), 'UTF8') AS schema_name,
+       pg_catalog.convert_from(pg_catalog.decode(:'table_hex', 'hex'), 'UTF8') AS table_name
+\\gset
+\\d :\"schema_name\".:\"table_name\"
+"
 
   columnsQuery="
 SELECT column_name
 FROM information_schema.columns
-WHERE table_schema = :'schema'
-  AND table_name = :'table'
+WHERE table_schema = pg_catalog.convert_from(pg_catalog.decode(:'schema_hex', 'hex'), 'UTF8')
+  AND table_name = pg_catalog.convert_from(pg_catalog.decode(:'table_hex', 'hex'), 'UTF8')
 ORDER BY ordinal_position;
 "
 
-  mkdir -p -- "$outputDir" && runPsql -c "\d $relation" \
-    | tee -a "$outputDir/full-details.txt" >/dev/null \
+  mkdir -p -- "$outputDir" \
+    && printf "%s\n" "$detailsQuery" \
+      | runPsql -v "schema_hex=$schemaHex" -v "table_hex=$tableHex" \
+        > "$outputDir/full-details.txt" \
     && printf "%s\n" "$columnsQuery" \
-      | runPsql -At -v "schema=$schema" -v "table=$table" \
+      | runPsql -At -v "schema_hex=$schemaHex" -v "table_hex=$tableHex" \
         > "$outputDir/columns.txt"
 }
 
@@ -167,7 +228,17 @@ if ! mkdir "$outputRoot" || ! cd "$outputRoot" || ! : > tables.txt; then
 fi
 
 tableQuery="
-SELECT n.nspname, c.relname, pg_catalog.format('%I.%I', n.nspname, c.relname)
+SELECT pg_catalog.encode(pg_catalog.convert_to(n.nspname, 'UTF8'), 'hex'),
+       pg_catalog.encode(pg_catalog.convert_to(c.relname, 'UTF8'), 'hex'),
+       pg_catalog.encode(
+         pg_catalog.convert_to(pg_catalog.format('%I.%I', n.nspname, c.relname), 'UTF8'),
+         'hex'
+       ),
+       CASE
+         WHEN n.nspname ~ '^[A-Za-z0-9_]+$' AND c.relname ~ '^[A-Za-z0-9_]+$'
+           THEN 'simple'
+         ELSE 'encoded'
+       END
 FROM pg_catalog.pg_class AS c
 JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
 WHERE c.relkind = 'r'
@@ -185,30 +256,36 @@ fi
 pids=()
 batchSize=0
 maxJobs=5
-while IFS='|' read -r schema table relation; do
-  case "$schema" in
-    ""|*[!A-Za-z0-9_]*)
-      echo "Unsupported schema name for output: $schema" >&2
-      exit 1
-      ;;
-  esac
-  case "$table" in
-    ""|*[!A-Za-z0-9_]*)
-      echo "Unsupported table name for output: $table" >&2
+while IFS='|' read -r schemaHex tableHex relationHex pathMode; do
+  if ! validateHexIdentifier "$schemaHex" \
+    || ! validateHexIdentifier "$tableHex" \
+    || ! validateHexIdentifier "$relationHex"; then
+    echo "Database returned an invalid encoded table identifier" >&2
+    exit 1
+  fi
+  case "$pathMode" in
+    simple|encoded) ;;
+    *)
+      echo "Database returned an invalid table path mode" >&2
       exit 1
       ;;
   esac
 done < "$recordsFile"
 
-while IFS='|' read -r schema table relation; do
-  if [ "$schema" = "public" ]; then
-    outputDir="$table"
+while IFS='|' read -r schemaHex tableHex relationHex pathMode; do
+  encodedSchema="$(encodePathComponent "$schemaHex")" || exit 1
+  encodedTable="$(encodePathComponent "$tableHex")" || exit 1
+
+  if [ "$pathMode" = "encoded" ]; then
+    outputDir=".identifiers/$encodedSchema/$encodedTable"
+  elif [ "$encodedSchema" = "public" ]; then
+    outputDir="$encodedTable"
   else
-    outputDir="$schema.$table"
+    outputDir="$encodedSchema.$encodedTable"
   fi
 
-  printf "%s\n" "$relation" | tee -a tables.txt >/dev/null
-  fetchDetails "$schema" "$table" "$relation" "$outputDir" &
+  appendDecodedHex "$relationHex" tables.txt || exit 1
+  fetchDetails "$schemaHex" "$tableHex" "$outputDir" &
   pids+=("$!")
   batchSize=$((batchSize + 1))
 

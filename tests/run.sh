@@ -153,15 +153,20 @@ function testSnapshotsAndFailures() {
   assertFile /tmp/tables/orders/columns.txt
 }
 
-function testUnsafeNames() {
-  beginCase unsafe
-  runCli replacement user localhost app
-  assertEqual 0 "$CLI_STATUS" "unsafe test seed status" || return 1
-
-  runCli unsafe user localhost app
-  [ "$CLI_STATUS" -ne 0 ] || return 1
-  assertNoFile /tmp/escape || return 1
-  assertFile /tmp/tables/orders/columns.txt
+function testLegalIdentifiers() {
+  beginCase identifiers
+  runCli identifiers user localhost app
+  assertEqual 0 "$CLI_STATUS" "legal identifier status" || return 1
+  assertFile /tmp/tables/.identifiers/public/Order-Items/columns.txt || return 1
+  assertFile /tmp/tables/.identifiers/public/Order%2dItems/columns.txt || return 1
+  assertFile /tmp/tables/.identifiers/sales-data/path%2ftable/columns.txt || return 1
+  assertFile /tmp/tables/.identifiers/public/%2e/columns.txt || return 1
+  assertFile /tmp/tables/.identifiers/public/caf%c3%a9/columns.txt || return 1
+  assertFile /tmp/tables/.identifiers/public/100%25-done/columns.txt || return 1
+  assertFile /tmp/tables/.identifiers/public/line%0abreak/columns.txt || return 1
+  assertFile /tmp/tables/.identifiers/public/say%22hi/columns.txt || return 1
+  assertContains 'public."Order Items"' /tmp/tables/tables.txt || return 1
+  assertContains '"sales data"."path/table"' /tmp/tables/tables.txt
 }
 
 function testConcurrencyLimit() {
@@ -198,7 +203,7 @@ runTest "non-interactive password requirement" testNonInteractivePassword
 runTest "structured metadata" testStructuredMetadata
 runTest "ordinary tables only" testOrdinaryTablesOnly
 runTest "snapshots and failures" testSnapshotsAndFailures
-runTest "unsafe names" testUnsafeNames
+runTest "legal PostgreSQL identifiers" testLegalIdentifiers
 runTest "five-job concurrency limit" testConcurrencyLimit
 runTest "empty database" testEmptyDatabase
 

@@ -2,8 +2,8 @@
 
 commandText=""
 commandFromOption=0
-schema=""
-table=""
+schemaHex=""
+tableHex=""
 connectionHost=""
 connectionPort=""
 
@@ -28,8 +28,8 @@ while [ "$#" -gt 0 ]; do
       ;;
     -v)
       case "$2" in
-        schema=*) schema="${2#schema=}" ;;
-        table=*) table="${2#table=}" ;;
+        schema_hex=*) schemaHex="${2#schema_hex=}" ;;
+        table_hex=*) tableHex="${2#table_hex=}" ;;
       esac
       shift 2
       ;;
@@ -85,26 +85,31 @@ case "$commandText" in
       empty)
         exit 0
         ;;
-      unsafe)
-        printf "public|users|public.users\n"
-        printf "public|../escape|public.\"../escape\"\n"
+      identifiers)
+        printf "7075626c6963|4f72646572204974656d73|7075626c69632e224f72646572204974656d7322|encoded\n"
+        printf "7075626c6963|4f726465722d4974656d73|7075626c69632e224f726465722d4974656d7322|encoded\n"
+        printf "73616c65732064617461|706174682f7461626c65|2273616c65732064617461222e22706174682f7461626c6522|encoded\n"
+        printf "7075626c6963|2e|7075626c69632e222e22|encoded\n"
+        printf "7075626c6963|636166c3a9|7075626c69632e22636166c3a922|encoded\n"
+        printf "7075626c6963|3130302520646f6e65|7075626c69632e223130302520646f6e6522|encoded\n"
+        printf "7075626c6963|6c696e650a627265616b|7075626c69632e226c696e650a627265616b22|encoded\n"
+        printf "7075626c6963|736179226869|7075626c69632e227361792222686922|encoded\n"
         ;;
       replacement)
-        printf "public|orders|public.orders\n"
+        printf "7075626c6963|6f7264657273|7075626c69632e6f7264657273|simple\n"
         ;;
       concurrency)
         for number in 1 2 3 4 5 6; do
-          printf "public|table%s|public.table%s\n" "$number" "$number"
+          printf "7075626c6963|7461626c653%s|7075626c69632e7461626c653%s|simple\n" "$number" "$number"
         done
         ;;
       *)
-        printf "public|users|public.users\n"
-        printf "audit|Events|audit.\"Events\"\n"
+        printf "7075626c6963|7573657273|7075626c69632e7573657273|simple\n"
+        printf "6175646974|4576656e7473|61756469742e224576656e747322|simple\n"
         ;;
     esac
     ;;
-  "\\d "*)
-    relation="${commandText#\\d }"
+  *schema_name*table_name*"\\gset"*)
     activeFile=""
     if [ -n "${TEST_STATE_DIR:-}" ]; then
       activeFile="$TEST_STATE_DIR/active/$$"
@@ -121,11 +126,15 @@ case "$commandText" in
     fi
     trap '[ -z "$activeFile" ] || find "$activeFile" -delete' EXIT
     [ "$TEST_SCENARIO" != "concurrency" ] || sleep 0.1
-    if [ "$TEST_SCENARIO" = "detail-failure" ] && [ "$relation" = "public.users" ]; then
+    if [ "$TEST_SCENARIO" = "detail-failure" ] && [ "$tableHex" = "7573657273" ]; then
       echo "unable to describe relation" >&2
       exit 1
     fi
-    printf "Table %s\n" "$relation"
+    if [ -z "$schemaHex" ] || [ -z "$tableHex" ]; then
+      echo "missing encoded detail variables" >&2
+      exit 1
+    fi
+    printf "Table %s.%s\n" "$schemaHex" "$tableHex"
     printf " Column | Type\n"
     printf " column_id | integer\n"
     printf " name | text\n"
@@ -135,8 +144,8 @@ case "$commandText" in
       echo "psql variables are not expanded in -c SQL" >&2
       exit 1
     fi
-    if [ -z "$schema" ] || [ -z "$table" ]; then
-      echo "missing metadata variables" >&2
+    if [ -z "$schemaHex" ] || [ -z "$tableHex" ]; then
+      echo "missing encoded metadata variables" >&2
       exit 1
     fi
     printf "column_id\nname\n"

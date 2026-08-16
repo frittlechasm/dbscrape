@@ -44,10 +44,18 @@ A successful scrape produces the following layout:
 - `full-details.txt` contains the human-readable output from `psql`'s `\d` command.
 - Tables in `public` use their table name as the directory name.
 - Tables in other schemas use `<schema>.<table>`.
+- Identifiers requiring filesystem encoding use `.identifiers/<schema>/<table>`.
 
 Only ordinary, non-partition tables are included. Views, materialized views, foreign tables, partitioned tables, and their partitions are deferred for future support.
 
-All user schemas are inspected. PostgreSQL-managed schemas and `information_schema` are excluded. Schema and table names containing characters other than letters, numbers, and underscores are rejected because they cannot be mapped safely to the fixed output directory.
+All user schemas are inspected. PostgreSQL-managed schemas and `information_schema` are excluded.
+
+Every legal PostgreSQL identifier can be represented safely. Existing names containing only letters, numbers, and underscores retain their original output paths. Other names use readable percent encoding under `.identifiers`:
+
+- Spaces become hyphens: `Order Items` becomes `Order-Items`.
+- Literal hyphens are encoded as `%2d`, preventing a collision with spaces.
+- Filesystem separators, control characters, percent signs, and non-ASCII UTF-8 bytes use `%xx` encoding.
+- The special path components `.` and `..` become `%2e` and `%2e%2e`.
 
 ## Run behavior
 
