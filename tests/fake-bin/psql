@@ -1,0 +1,115 @@
+#!/bin/bash
+
+commandText=""
+schema=""
+table=""
+
+if [ "${PGPASSWORD:-}" != "${TEST_EXPECTED_PASSWORD:-}" ]; then
+  echo "unexpected PGPASSWORD" >&2
+  exit 1
+fi
+
+case " $* " in
+  *"${TEST_EXPECTED_PASSWORD:-}"*)
+    echo "password leaked into psql arguments" >&2
+    exit 1
+    ;;
+esac
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -c)
+      commandText="$2"
+      shift 2
+      ;;
+    -v)
+      case "$2" in
+        schema=*) schema="${2#schema=}" ;;
+        table=*) table="${2#table=}" ;;
+      esac
+      shift 2
+      ;;
+    -h|-U|-d|-F)
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+if [ -z "$commandText" ]; then
+  echo "missing psql command" >&2
+  exit 1
+fi
+
+if [ -n "${TEST_STATE_DIR:-}" ]; then
+  printf "%s\n" "$commandText" >> "$TEST_STATE_DIR/calls"
+fi
+
+case "$commandText" in
+  *pg_catalog.pg_tables*)
+    case "$TEST_SCENARIO" in
+      list-failure)
+        echo "unable to connect" >&2
+        exit 1
+        ;;
+      empty)
+        exit 0
+        ;;
+      unsafe)
+        printf "public|../escape|public.\"../escape\"\n"
+        ;;
+      replacement)
+        printf "public|orders|public.orders\n"
+        ;;
+      concurrency)
+        for number in 1 2 3 4 5 6; do
+          printf "public|table%s|public.table%s\n" "$number" "$number"
+        done
+        ;;
+      *)
+        printf "public|users|public.users\n"
+        printf "audit|Events|audit.\"Events\"\n"
+        ;;
+    esac
+    ;;
+  "\\d "*)
+    relation="${commandText#\\d }"
+    activeFile=""
+    if [ -n "${TEST_STATE_DIR:-}" ]; then
+      activeFile="$TEST_STATE_DIR/active/$$"
+      : > "$activeFile"
+      while ! mkdir "$TEST_STATE_DIR/lock" 2>/dev/null; do
+        sleep 0.01
+      done
+      activeCount="$(find "$TEST_STATE_DIR/active" -type f | wc -l | tr -d ' ')"
+      maxActive="$(sed -n '1p' "$TEST_STATE_DIR/max-active")"
+      if [ "$activeCount" -gt "$maxActive" ]; then
+        printf "%s\n" "$activeCount" > "$TEST_STATE_DIR/max-active"
+      fi
+      rmdir "$TEST_STATE_DIR/lock"
+    fi
+    trap '[ -z "$activeFile" ] || find "$activeFile" -delete' EXIT
+    [ "$TEST_SCENARIO" != "concurrency" ] || sleep 0.1
+    if [ "$TEST_SCENARIO" = "detail-failure" ] && [ "$relation" = "public.users" ]; then
+      echo "unable to describe relation" >&2
+      exit 1
+    fi
+    printf "Table %s\n" "$relation"
+    printf " Column | Type\n"
+    printf " column_id | integer\n"
+    printf " name | text\n"
+    ;;
+  *information_schema.columns*)
+    if [ -z "$schema" ] || [ -z "$table" ]; then
+      echo "missing metadata variables" >&2
+      exit 1
+    fi
+    printf "column_id\nname\n"
+    ;;
+  *)
+    echo "unexpected psql command: $commandText" >&2
+    exit 1
+    ;;
+esac
