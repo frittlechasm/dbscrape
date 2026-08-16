@@ -6,7 +6,49 @@
 
 - Bash 3.2 or newer
 - The PostgreSQL `psql` client
+- `curl` when using the installer
 - PostgreSQL credentials with access to the schemas being inspected
+
+## Installation
+
+Download and run the installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/frittlechasm/dbscrape/main/install.sh | bash
+```
+
+The installer downloads the `dbscrape` asset from the latest GitHub release. It does not pin a version, so running the same command again upgrades an existing installation to the newest release.
+
+By default, it installs `dbscrape` at `$HOME/.local/bin/dbscrape`. `$HOME/.local/bin` must already be on `PATH`; the installer exits with instructions when the default directory is not available on `PATH`.
+
+To use another absolute directory:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/frittlechasm/dbscrape/main/install.sh \
+  | bash -s -- --bin-dir "$HOME/bin"
+```
+
+An explicit directory is always honored. The installer warns when that directory is not on the current `PATH`. It does not invoke `sudo` or modify shell configuration.
+
+Each GitHub release must include an asset named exactly `dbscrape` for release installation to work. Until the first such release is published, install from a local checkout:
+
+```bash
+./install.sh --source ./dbscrape --bin-dir "$HOME/.local/bin"
+```
+
+The installer checks its dependencies, downloads into a temporary file, validates the script with `bash -n`, installs it with executable permissions, and verifies the installed file.
+
+### Upgrading
+
+Rerun the installation command. The stable download URL follows GitHub's latest release and replaces the existing executable only after the downloaded script passes validation.
+
+### Uninstalling
+
+Remove the installed executable. For the default installation:
+
+```bash
+rm "$HOME/.local/bin/dbscrape"
+```
 
 ## Usage
 
