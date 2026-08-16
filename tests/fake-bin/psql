@@ -69,7 +69,14 @@ if [ -n "${TEST_STATE_DIR:-}" ]; then
 fi
 
 case "$commandText" in
-  *pg_catalog.pg_tables*)
+  *pg_catalog.pg_class*)
+    case "$commandText" in
+      *"c.relkind = 'r'"*"NOT c.relispartition"*) ;;
+      *)
+        echo "table query does not restrict ordinary non-partition tables" >&2
+        exit 1
+        ;;
+    esac
     case "$TEST_SCENARIO" in
       list-failure)
         echo "unable to connect" >&2

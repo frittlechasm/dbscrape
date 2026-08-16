@@ -45,7 +45,9 @@ A successful scrape produces the following layout:
 - Tables in `public` use their table name as the directory name.
 - Tables in other schemas use `<schema>.<table>`.
 
-All schemas except PostgreSQL's catalog and information schema are inspected. Schema and table names containing characters other than letters, numbers, and underscores are rejected because they cannot be mapped safely to the fixed output directory.
+Only ordinary, non-partition tables are included. Views, materialized views, foreign tables, partitioned tables, and their partitions are deferred for future support.
+
+All user schemas are inspected. PostgreSQL-managed schemas and `information_schema` are excluded. Schema and table names containing characters other than letters, numbers, and underscores are rejected because they cannot be mapped safely to the fixed output directory.
 
 ## Run behavior
 

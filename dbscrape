@@ -167,10 +167,14 @@ if ! mkdir "$outputRoot" || ! cd "$outputRoot" || ! : > tables.txt; then
 fi
 
 tableQuery="
-SELECT schemaname, tablename, format('%I.%I', schemaname, tablename)
-FROM pg_catalog.pg_tables
-WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
-ORDER BY schemaname, tablename;
+SELECT n.nspname, c.relname, pg_catalog.format('%I.%I', n.nspname, c.relname)
+FROM pg_catalog.pg_class AS c
+JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+WHERE c.relkind = 'r'
+  AND NOT c.relispartition
+  AND n.nspname <> 'information_schema'
+  AND n.nspname !~ '^pg_'
+ORDER BY n.nspname, c.relname;
 "
 
 if ! runPsql -At -F '|' -c "$tableQuery" > "$recordsFile"; then

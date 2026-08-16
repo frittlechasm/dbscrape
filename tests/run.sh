@@ -126,6 +126,14 @@ function testStructuredMetadata() {
   assertContains "DB Scraped!!" "$TEST_STATE_DIR/stdout"
 }
 
+function testOrdinaryTablesOnly() {
+  beginCase ordinary-tables
+  runCli happy user localhost app
+  assertEqual 0 "$CLI_STATUS" "ordinary table status" || return 1
+  assertContains "c.relkind = 'r'" "$TEST_STATE_DIR/calls" || return 1
+  assertContains "NOT c.relispartition" "$TEST_STATE_DIR/calls"
+}
+
 function testSnapshotsAndFailures() {
   beginCase snapshots
   runCli happy user localhost app
@@ -188,6 +196,7 @@ function runTest() {
 runTest "missing arguments" testMissingArguments
 runTest "non-interactive password requirement" testNonInteractivePassword
 runTest "structured metadata" testStructuredMetadata
+runTest "ordinary tables only" testOrdinaryTablesOnly
 runTest "snapshots and failures" testSnapshotsAndFailures
 runTest "unsafe names" testUnsafeNames
 runTest "five-job concurrency limit" testConcurrencyLimit
