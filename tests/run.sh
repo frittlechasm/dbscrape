@@ -46,8 +46,21 @@ function runCli() {
   shift
   export TEST_SCENARIO
 
-  if PATH="$fakeBin:$PATH" "$repoDir/dbscrape" "$@" \
+  if PGPASSWORD="$TEST_EXPECTED_PASSWORD" PATH="$fakeBin:$PATH" "$repoDir/dbscrape" "$@" \
     > "$TEST_STATE_DIR/stdout" 2> "$TEST_STATE_DIR/stderr"; then
+    CLI_STATUS=0
+  else
+    CLI_STATUS=$?
+  fi
+}
+
+function runCliWithoutPassword() {
+  TEST_SCENARIO="$1"
+  shift
+  export TEST_SCENARIO
+
+  if env -u PGPASSWORD PATH="$fakeBin:$PATH" "$repoDir/dbscrape" "$@" \
+    < /dev/null > "$TEST_STATE_DIR/stdout" 2> "$TEST_STATE_DIR/stderr"; then
     CLI_STATUS=0
   else
     CLI_STATUS=$?
@@ -93,11 +106,18 @@ function testMissingArguments() {
   assertContains "Usage: dbscrape" "$TEST_STATE_DIR/stderr"
 }
 
+function testNonInteractivePassword() {
+  beginCase non-interactive-password
+  runCliWithoutPassword happy user localhost app
+  [ "$CLI_STATUS" -ne 0 ] || return 1
+  assertContains "Password required: set PGPASSWORD" "$TEST_STATE_DIR/stderr"
+}
+
 function testStructuredMetadata() {
   beginCase metadata
   TEST_EXPECTED_PORT="5433"
   export TEST_EXPECTED_PORT
-  runCli happy user "$TEST_EXPECTED_PASSWORD" localhost:5433 app
+  runCli happy user localhost:5433 app
   assertEqual 0 "$CLI_STATUS" "metadata status" || return 1
   assertFile /tmp/tables/users/full-details.txt || return 1
   assertFile /tmp/tables/audit.Events/columns.txt || return 1
@@ -108,29 +128,29 @@ function testStructuredMetadata() {
 
 function testSnapshotsAndFailures() {
   beginCase snapshots
-  runCli happy user "$TEST_EXPECTED_PASSWORD" localhost app
+  runCli happy user localhost app
   assertEqual 0 "$CLI_STATUS" "initial snapshot status" || return 1
 
-  runCli detail-failure user "$TEST_EXPECTED_PASSWORD" localhost app
+  runCli detail-failure user localhost app
   [ "$CLI_STATUS" -ne 0 ] || return 1
   assertFile /tmp/tables/users/columns.txt || return 1
 
-  runCli replacement user "$TEST_EXPECTED_PASSWORD" localhost app
+  runCli replacement user localhost app
   assertEqual 0 "$CLI_STATUS" "replacement status" || return 1
   assertFile /tmp/tables/orders/columns.txt || return 1
   assertNoFile /tmp/tables/users || return 1
 
-  runCli list-failure user "$TEST_EXPECTED_PASSWORD" localhost app
+  runCli list-failure user localhost app
   [ "$CLI_STATUS" -ne 0 ] || return 1
   assertFile /tmp/tables/orders/columns.txt
 }
 
 function testUnsafeNames() {
   beginCase unsafe
-  runCli replacement user "$TEST_EXPECTED_PASSWORD" localhost app
+  runCli replacement user localhost app
   assertEqual 0 "$CLI_STATUS" "unsafe test seed status" || return 1
 
-  runCli unsafe user "$TEST_EXPECTED_PASSWORD" localhost app
+  runCli unsafe user localhost app
   [ "$CLI_STATUS" -ne 0 ] || return 1
   assertNoFile /tmp/escape || return 1
   assertFile /tmp/tables/orders/columns.txt
@@ -138,7 +158,7 @@ function testUnsafeNames() {
 
 function testConcurrencyLimit() {
   beginCase concurrency
-  runCli concurrency user "$TEST_EXPECTED_PASSWORD" localhost app
+  runCli concurrency user localhost app
   assertEqual 0 "$CLI_STATUS" "concurrency status" || return 1
   assertEqual 5 "$(sed -n '1p' "$TEST_STATE_DIR/max-active")" "maximum concurrent jobs" || return 1
   assertFile /tmp/tables/table6/columns.txt
@@ -146,7 +166,7 @@ function testConcurrencyLimit() {
 
 function testEmptyDatabase() {
   beginCase empty
-  runCli empty user "$TEST_EXPECTED_PASSWORD" localhost app
+  runCli empty user localhost app
   assertEqual 0 "$CLI_STATUS" "empty database status" || return 1
   assertFile /tmp/tables/tables.txt || return 1
   assertEqual 0 "$(wc -l < /tmp/tables/tables.txt | tr -d ' ')" "empty table list"
@@ -166,6 +186,7 @@ function runTest() {
 }
 
 runTest "missing arguments" testMissingArguments
+runTest "non-interactive password requirement" testNonInteractivePassword
 runTest "structured metadata" testStructuredMetadata
 runTest "snapshots and failures" testSnapshotsAndFailures
 runTest "unsafe names" testUnsafeNames

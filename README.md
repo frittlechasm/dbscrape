@@ -10,16 +10,18 @@
 
 ## Usage
 
-Pass exactly four positional arguments:
+Pass exactly three positional arguments:
 
 ```bash
-./dbscrape <username> <password> <host> <database>
+./dbscrape <username> <host> <database>
 ```
+
+When run from an interactive terminal, `dbscrape` prompts for the password without echoing it.
 
 The host may include a port, such as `localhost:5433`. Bracketed IPv6 hosts with an optional port are also supported:
 
 ```bash
-./dbscrape app_user secret '[::1]:5433' app_database
+./dbscrape app_user '[::1]:5433' app_database
 ```
 
 ## Output
@@ -55,7 +57,15 @@ The command refuses to replace `/tmp/tables` when it is a symbolic link or is no
 
 ## Password handling
 
-The script passes the password to `psql` through `PGPASSWORD`, so URI metacharacters in credentials do not require percent-encoding. The password remains visible in the `dbscrape` command's arguments and may be saved in shell history.
+Passwords are never accepted as command-line arguments. This keeps them out of shell history and process argument listings.
+
+For automated or non-interactive use, inject `PGPASSWORD` through the CI or runtime secret store:
+
+```bash
+PGPASSWORD="$DB_PASSWORD" ./dbscrape app_user localhost app_database
+```
+
+The command exits before connecting when standard input is not an interactive terminal and `PGPASSWORD` is unset.
 
 ## Tests
 

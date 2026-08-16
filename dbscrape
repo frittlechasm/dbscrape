@@ -87,8 +87,8 @@ ORDER BY ordinal_position;
         > "$outputDir/columns.txt"
 }
 
-if [ "$#" -ne 4 ]; then
-  echo "Usage: dbscrape <username> <password> <host> <database>" >&2
+if [ "$#" -ne 3 ]; then
+  echo "Usage: dbscrape <username> <host> <database>" >&2
   exit 1
 fi
 
@@ -98,9 +98,8 @@ if ! command -v psql >/dev/null 2>&1; then
 fi
 
 username="$1"
-password="$2"
-hostArgument="$3"
-database="$4"
+hostArgument="$2"
+database="$3"
 runDir=""
 port=""
 
@@ -134,6 +133,20 @@ case "$port" in
 esac
 if [ -z "$host" ] || { [ -n "$port" ] && { [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; }; }; then
   echo "Invalid database host or port: $hostArgument" >&2
+  exit 1
+fi
+
+if [ "${PGPASSWORD+x}" = "x" ]; then
+  password="$PGPASSWORD"
+elif [ -t 0 ]; then
+  printf "Password: " >&2
+  if ! IFS= read -r -s password; then
+    printf "\nUnable to read database password\n" >&2
+    exit 1
+  fi
+  printf "\n" >&2
+else
+  echo "Password required: set PGPASSWORD or run dbscrape from an interactive terminal" >&2
   exit 1
 fi
 
