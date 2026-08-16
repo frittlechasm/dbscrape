@@ -16,3 +16,5 @@ The script passes the password to `psql` through `PGPASSWORD`, so URI metacharac
 All user-defined schemas are inspected. Tables in `public` retain their table-name directory, while tables in other schemas use `<schema>.<table>`. Schema and table names containing characters other than letters, numbers, and underscores are rejected because they cannot be mapped safely to the fixed output directory.
 
 Column names are read from `information_schema.columns` in ordinal order instead of being parsed from the human-readable `\d` output.
+
+Tables are scraped in batches of up to five. The command exits with a non-zero status and does not print the completion message if table discovery or any table scrape fails.
