@@ -7,14 +7,24 @@ function runPsql() {
 }
 
 function fetchDetails() {
-  local relation="$1"
-  local outputDir="$2"
+  local schema="$1"
+  local table="$2"
+  local relation="$3"
+  local outputDir="$4"
+  local columnsQuery
+
+  columnsQuery="
+SELECT column_name
+FROM information_schema.columns
+WHERE table_schema = :'schema'
+  AND table_name = :'table'
+ORDER BY ordinal_position;
+"
 
   mkdir -p -- "$outputDir" && runPsql -c "\d $relation" \
-    | tee -a "$outputDir/full-details.txt" \
-    | grep '|' \
-    | grep -vi 'column' \
-    | cut -d'|' -f1 > "$outputDir/columns.txt"
+    | tee -a "$outputDir/full-details.txt" >/dev/null \
+    && runPsql -At -v "schema=$schema" -v "table=$table" \
+      -c "$columnsQuery" > "$outputDir/columns.txt"
 }
 
 if [ "$#" -ne 4 ]; then
@@ -65,7 +75,7 @@ while IFS='|' read -r schema table relation; do
   fi
 
   printf "%s\n" "$relation" | tee -a tables.txt >/dev/null
-  fetchDetails "$relation" "$outputDir" &
+  fetchDetails "$schema" "$table" "$relation" "$outputDir" &
 done < <(runPsql -At -F '|' -c "$tableQuery")
 wait
 echo "DB Scraped!!"
