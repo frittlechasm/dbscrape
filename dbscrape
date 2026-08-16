@@ -56,8 +56,13 @@ function waitForJobs() {
 }
 
 function runPsql() {
+  local connectionArgs=(-h "$host" -U "$username" -d "$database")
+
+  if [ -n "$port" ]; then
+    connectionArgs+=(-p "$port")
+  fi
   PGPASSWORD="$password" psql -X -v ON_ERROR_STOP=1 \
-    -h "$host" -U "$username" -d "$database" "$@"
+    "${connectionArgs[@]}" "$@"
 }
 
 function fetchDetails() {
@@ -93,9 +98,43 @@ fi
 
 username="$1"
 password="$2"
-host="$3"
+hostArgument="$3"
 database="$4"
 runDir=""
+port=""
+
+case "$hostArgument" in
+  *:)
+    echo "Invalid database host or port: $hostArgument" >&2
+    exit 1
+    ;;
+  \[*\]:*)
+    host="${hostArgument#\[}"
+    host="${host%%\]*}"
+    port="${hostArgument##*\]:}"
+    ;;
+  \[*\])
+    host="${hostArgument#\[}"
+    host="${host%\]}"
+    ;;
+  *:*)
+    host="${hostArgument%:*}"
+    port="${hostArgument##*:}"
+    ;;
+  *)
+    host="$hostArgument"
+    ;;
+esac
+case "$port" in
+  *[!0-9]*)
+    echo "Invalid database host or port: $hostArgument" >&2
+    exit 1
+    ;;
+esac
+if [ -z "$host" ] || { [ -n "$port" ] && { [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; }; }; then
+  echo "Invalid database host or port: $hostArgument" >&2
+  exit 1
+fi
 
 if ! cd /tmp/ || ! validateOutputTarget; then
   echo "Unable to prepare /tmp/tables" >&2

@@ -11,6 +11,8 @@
 ./dbscrape <username> <password> <host> <database>
 ```
 
+The host may include a port, such as `localhost:5433`. Bracketed IPv6 hosts with an optional port are also supported.
+
 The script passes the password to `psql` through `PGPASSWORD`, so URI metacharacters in credentials do not require percent-encoding. The password remains visible in the `dbscrape` command's arguments and may be saved in shell history.
 
 All user-defined schemas are inspected. Tables in `public` retain their table-name directory, while tables in other schemas use `<schema>.<table>`. Schema and table names containing characters other than letters, numbers, and underscores are rejected because they cannot be mapped safely to the fixed output directory.

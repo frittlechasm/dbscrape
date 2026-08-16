@@ -3,6 +3,8 @@
 commandText=""
 schema=""
 table=""
+connectionHost=""
+connectionPort=""
 
 if [ "${PGPASSWORD:-}" != "${TEST_EXPECTED_PASSWORD:-}" ]; then
   echo "unexpected PGPASSWORD" >&2
@@ -29,7 +31,15 @@ while [ "$#" -gt 0 ]; do
       esac
       shift 2
       ;;
-    -h|-U|-d|-F)
+    -h)
+      connectionHost="$2"
+      shift 2
+      ;;
+    -p)
+      connectionPort="$2"
+      shift 2
+      ;;
+    -U|-d|-F)
       shift 2
       ;;
     *)
@@ -37,6 +47,11 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+if [ "$connectionHost" != "${TEST_EXPECTED_HOST:-}" ] || [ "$connectionPort" != "${TEST_EXPECTED_PORT:-}" ]; then
+  echo "unexpected host or port" >&2
+  exit 1
+fi
 
 if [ -z "$commandText" ]; then
   echo "missing psql command" >&2

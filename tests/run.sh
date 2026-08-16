@@ -36,7 +36,9 @@ function beginCase() {
   : > "$TEST_STATE_DIR/calls"
   printf "0\n" > "$TEST_STATE_DIR/max-active"
   TEST_EXPECTED_PASSWORD="p@ ss/word"
-  export TEST_STATE_DIR TEST_EXPECTED_PASSWORD
+  TEST_EXPECTED_HOST="localhost"
+  TEST_EXPECTED_PORT=""
+  export TEST_STATE_DIR TEST_EXPECTED_PASSWORD TEST_EXPECTED_HOST TEST_EXPECTED_PORT
 }
 
 function runCli() {
@@ -93,7 +95,9 @@ function testMissingArguments() {
 
 function testStructuredMetadata() {
   beginCase metadata
-  runCli happy user "$TEST_EXPECTED_PASSWORD" localhost app
+  TEST_EXPECTED_PORT="5433"
+  export TEST_EXPECTED_PORT
+  runCli happy user "$TEST_EXPECTED_PASSWORD" localhost:5433 app
   assertEqual 0 "$CLI_STATUS" "metadata status" || return 1
   assertFile /tmp/tables/users/full-details.txt || return 1
   assertFile /tmp/tables/audit.Events/columns.txt || return 1
