@@ -82,8 +82,9 @@ ORDER BY ordinal_position;
 
   mkdir -p -- "$outputDir" && runPsql -c "\d $relation" \
     | tee -a "$outputDir/full-details.txt" >/dev/null \
-    && runPsql -At -v "schema=$schema" -v "table=$table" \
-      -c "$columnsQuery" > "$outputDir/columns.txt"
+    && printf "%s\n" "$columnsQuery" \
+      | runPsql -At -v "schema=$schema" -v "table=$table" \
+        > "$outputDir/columns.txt"
 }
 
 if [ "$#" -ne 4 ]; then

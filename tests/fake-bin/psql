@@ -1,6 +1,7 @@
 #!/bin/bash
 
 commandText=""
+commandFromOption=0
 schema=""
 table=""
 connectionHost=""
@@ -22,6 +23,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     -c)
       commandText="$2"
+      commandFromOption=1
       shift 2
       ;;
     -v)
@@ -47,6 +49,10 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+if [ -z "$commandText" ]; then
+  commandText="$(cat)"
+fi
 
 if [ "$connectionHost" != "${TEST_EXPECTED_HOST:-}" ] || [ "$connectionPort" != "${TEST_EXPECTED_PORT:-}" ]; then
   echo "unexpected host or port" >&2
@@ -117,6 +123,10 @@ case "$commandText" in
     printf " name | text\n"
     ;;
   *information_schema.columns*)
+    if [ "$commandFromOption" -eq 1 ]; then
+      echo "psql variables are not expanded in -c SQL" >&2
+      exit 1
+    fi
     if [ -z "$schema" ] || [ -z "$table" ]; then
       echo "missing metadata variables" >&2
       exit 1
