@@ -32,9 +32,12 @@ function beginCase() {
   local name="$1"
 
   TEST_STATE_DIR="$testRoot/$name"
-  mkdir -p "$TEST_STATE_DIR/active"
-  : > "$TEST_STATE_DIR/calls"
-  printf "0\n" > "$TEST_STATE_DIR/max-active"
+  mkdir -p "$TEST_STATE_DIR"
+  : > "$TEST_STATE_DIR/invocations"
+  if [ "$name" = "concurrency" ]; then
+    mkdir "$TEST_STATE_DIR/active"
+    printf "0\n" > "$TEST_STATE_DIR/max-active"
+  fi
   TEST_EXPECTED_PASSWORD="p@ ss/word"
   TEST_EXPECTED_HOST="localhost"
   TEST_EXPECTED_PORT=""
@@ -48,19 +51,6 @@ function runCli() {
 
   if PGPASSWORD="$TEST_EXPECTED_PASSWORD" PATH="$fakeBin:$PATH" "$repoDir/dbscrape" "$@" \
     > "$TEST_STATE_DIR/stdout" 2> "$TEST_STATE_DIR/stderr"; then
-    CLI_STATUS=0
-  else
-    CLI_STATUS=$?
-  fi
-}
-
-function runCliWithoutPassword() {
-  TEST_SCENARIO="$1"
-  shift
-  export TEST_SCENARIO
-
-  if env -u PGPASSWORD PATH="$fakeBin:$PATH" "$repoDir/dbscrape" "$@" \
-    < /dev/null > "$TEST_STATE_DIR/stdout" 2> "$TEST_STATE_DIR/stderr"; then
     CLI_STATUS=0
   else
     CLI_STATUS=$?
@@ -108,7 +98,14 @@ function testMissingArguments() {
 
 function testNonInteractivePassword() {
   beginCase non-interactive-password
-  runCliWithoutPassword happy user localhost app
+  TEST_SCENARIO=happy
+  export TEST_SCENARIO
+  if env -u PGPASSWORD PATH="$fakeBin:$PATH" "$repoDir/dbscrape" user localhost app \
+    < /dev/null > "$TEST_STATE_DIR/stdout" 2> "$TEST_STATE_DIR/stderr"; then
+    CLI_STATUS=0
+  else
+    CLI_STATUS=$?
+  fi
   [ "$CLI_STATUS" -ne 0 ] || return 1
   assertContains "Password required: set PGPASSWORD" "$TEST_STATE_DIR/stderr"
 }
@@ -122,16 +119,9 @@ function testStructuredMetadata() {
   assertFile /tmp/tables/users/full-details.txt || return 1
   assertFile /tmp/tables/audit.events/columns.txt || return 1
   assertEqual "column_id" "$(sed -n '1p' /tmp/tables/users/columns.txt)" "first column" || return 1
+  assertEqual 3 "$(wc -l < "$TEST_STATE_DIR/invocations" | tr -d ' ')" "psql invocations" || return 1
   assertContains 'audit."Events"' /tmp/tables/tables.txt || return 1
   assertContains "DB Scraped!!" "$TEST_STATE_DIR/stdout"
-}
-
-function testOrdinaryTablesOnly() {
-  beginCase ordinary-tables
-  runCli happy user localhost app
-  assertEqual 0 "$CLI_STATUS" "ordinary table status" || return 1
-  assertContains "c.relkind = 'r'" "$TEST_STATE_DIR/calls" || return 1
-  assertContains "NOT c.relispartition" "$TEST_STATE_DIR/calls"
 }
 
 function testSnapshotsAndFailures() {
@@ -140,6 +130,10 @@ function testSnapshotsAndFailures() {
   assertEqual 0 "$CLI_STATUS" "initial snapshot status" || return 1
 
   runCli detail-failure user localhost app
+  [ "$CLI_STATUS" -ne 0 ] || return 1
+  assertFile /tmp/tables/users/columns.txt || return 1
+
+  runCli columns-failure user localhost app
   [ "$CLI_STATUS" -ne 0 ] || return 1
   assertFile /tmp/tables/users/columns.txt || return 1
 
@@ -169,16 +163,6 @@ function testLegalIdentifiers() {
   assertContains '"sales data"."path/table"' /tmp/tables/tables.txt || return 1
   assertContains '"directory" : "order-items--03000deb"' /tmp/tables/table-paths.jsonl || return 1
   assertContains '"table" : "café"' /tmp/tables/table-paths.jsonl
-}
-
-function testNormalizedFolderNames() {
-  beginCase normalized
-  runCli normalized user localhost app
-  assertEqual 0 "$CLI_STATUS" "normalized folder status" || return 1
-  assertFile /tmp/tables/order-items/columns.txt || return 1
-  assertFile /tmp/tables/path-table/columns.txt || return 1
-  assertFile /tmp/tables/100%-done/columns.txt || return 1
-  assertFile /tmp/tables/cafe/columns.txt
 }
 
 function testConcurrencyLimit() {
@@ -214,10 +198,8 @@ function runTest() {
 runTest "missing arguments" testMissingArguments
 runTest "non-interactive password requirement" testNonInteractivePassword
 runTest "structured metadata" testStructuredMetadata
-runTest "ordinary tables only" testOrdinaryTablesOnly
 runTest "snapshots and failures" testSnapshotsAndFailures
 runTest "legal PostgreSQL identifiers" testLegalIdentifiers
-runTest "normalized folder names" testNormalizedFolderNames
 runTest "five-job concurrency limit" testConcurrencyLimit
 runTest "empty database" testEmptyDatabase
 

@@ -76,6 +76,7 @@ Tables in `public` use `<table>`. Other schemas use `<schema>.<table>`. If norma
 ## Run behavior
 
 - Scrapes up to five tables concurrently.
+- Uses one discovery connection and one connection per table for both output files.
 - Keeps the previous snapshot if discovery or scraping fails.
 - Refuses to replace `/tmp/tables` when it is a symbolic link or is not owned by the current user.
 
@@ -86,3 +87,7 @@ Run the local behavior suite:
 ```bash
 ./tests/run.sh
 ```
+
+The suite uses a fake `psql` to check CLI behavior, file handling, failures, and
+concurrency. Changes to SQL or `psql` formatting also need verification against a
+real PostgreSQL database; the fake supplies precomputed table records.

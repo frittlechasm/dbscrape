@@ -1,5 +1,5 @@
 #!/bin/bash
-# A script which parses through a postgres db and gets table information along with per table information
+# Write a snapshot of PostgreSQL table and column metadata.
 
 # Propagate a failed psql command through pipelines that redirect its output.
 set -o pipefail
@@ -37,7 +37,6 @@ function publishSnapshot() {
   fi
 
   if mv "$outputRoot" "$target"; then
-    [ ! -e "$previous" ] || find "$previous" -depth -delete
     find "$backupRoot" -depth -delete
     return 0
   fi
@@ -70,16 +69,15 @@ function validateHexIdentifier() {
 
 function appendDecodedHex() {
   local hex="$1"
-  local outputFile="$2"
   local byte
 
   # Consume one encoded byte, represented by two hex characters, per iteration.
   while [ -n "$hex" ]; do
     byte="${hex%${hex#??}}"
     hex="${hex#??}"
-    printf "%b" "\\x$byte" >> "$outputFile" || return 1
+    printf "%b" "\\x$byte" || return 1
   done
-  printf "\n" >> "$outputFile"
+  printf "\n"
 }
 
 function runPsql() {
@@ -96,18 +94,19 @@ function fetchDetails() {
   local schemaHex="$1"
   local tableHex="$2"
   local outputDir="$3"
-  local columnsQuery
   local detailsQuery
 
   # Decode names inside psql, then quote them as identifiers before passing them to \d.
+  # Reuse the connection for columns, quietly switching format and output file.
   detailsQuery="
 SELECT pg_catalog.convert_from(pg_catalog.decode(:'schema_hex', 'hex'), 'UTF8') AS schema_name,
        pg_catalog.convert_from(pg_catalog.decode(:'table_hex', 'hex'), 'UTF8') AS table_name
 \\gset
 \\d :\"schema_name\".:\"table_name\"
-"
-
-  columnsQuery="
+\\set QUIET on
+\\pset format unaligned
+\\pset tuples_only on
+\\o '$outputDir/columns.txt'
 SELECT column_name
 FROM information_schema.columns
 WHERE table_schema = pg_catalog.convert_from(pg_catalog.decode(:'schema_hex', 'hex'), 'UTF8')
@@ -118,10 +117,7 @@ ORDER BY ordinal_position;
   mkdir -p -- "$outputDir" \
     && printf "%s\n" "$detailsQuery" \
       | runPsql -v "schema_hex=$schemaHex" -v "table_hex=$tableHex" \
-        > "$outputDir/full-details.txt" \
-    && printf "%s\n" "$columnsQuery" \
-      | runPsql -At -v "schema_hex=$schemaHex" -v "table_hex=$tableHex" \
-        > "$outputDir/columns.txt"
+        > "$outputDir/full-details.txt"
 }
 
 if [ "$#" -ne 3 ]; then
@@ -336,10 +332,7 @@ if ! runPsql -At -F '|' -c "$tableQuery" > "$recordsFile"; then
 fi
 
 pids=()
-batchSize=0
 maxJobs=5
-# IFS='|' makes read split each record on pipes into the five named variables.
-# -r keeps backslashes literal instead of treating them as escape characters.
 # Validate every record before starting workers to avoid partially written results.
 while IFS='|' read -r schemaHex tableHex relationHex outputDir mappingHex; do
   if ! validateHexIdentifier "$schemaHex" \
@@ -359,19 +352,17 @@ done < "$recordsFile"
 
 # Read the validated records again and scrape at most five tables concurrently.
 while IFS='|' read -r schemaHex tableHex relationHex outputDir mappingHex; do
-  appendDecodedHex "$relationHex" tables.txt || exit 1
-  appendDecodedHex "$mappingHex" table-paths.jsonl || exit 1
+  appendDecodedHex "$relationHex" >> tables.txt || exit 1
+  appendDecodedHex "$mappingHex" >> table-paths.jsonl || exit 1
   fetchDetails "$schemaHex" "$tableHex" "$outputDir" &
   pids+=("$!")
-  batchSize=$((batchSize + 1))
 
-  if [ "$batchSize" -eq "$maxJobs" ]; then
+  if [ "${#pids[@]}" -eq "$maxJobs" ]; then
     if ! waitForJobs "${pids[@]}"; then
       echo "Database scrape failed" >&2
       exit 1
     fi
     pids=()
-    batchSize=0
   fi
 done < "$recordsFile"
 

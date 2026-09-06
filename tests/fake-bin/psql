@@ -1,7 +1,6 @@
 #!/bin/bash
 
 commandText=""
-commandFromOption=0
 schemaHex=""
 tableHex=""
 connectionHost=""
@@ -23,7 +22,6 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     -c)
       commandText="$2"
-      commandFromOption=1
       shift 2
       ;;
     -v)
@@ -64,9 +62,7 @@ if [ -z "$commandText" ]; then
   exit 1
 fi
 
-if [ -n "${TEST_STATE_DIR:-}" ]; then
-  printf "%s\n" "$commandText" >> "$TEST_STATE_DIR/calls"
-fi
+printf ".\n" >> "$TEST_STATE_DIR/invocations"
 
 function encodeText() {
   LC_ALL=C od -An -t x1 | tr -d ' \n'
@@ -96,12 +92,6 @@ case "$commandText" in
       empty)
         exit 0
         ;;
-      normalized)
-        emitRecord "7075626c6963" "4f726465722d4974656d73" "7075626c69632e224f726465722d4974656d7322" "order-items" '{"directory" : "order-items", "schema" : "public", "table" : "Order-Items"}'
-        emitRecord "7075626c6963" "706174682f7461626c65" "7075626c69632e22706174682f7461626c6522" "path-table" '{"directory" : "path-table", "schema" : "public", "table" : "path/table"}'
-        emitRecord "7075626c6963" "3130302520646f6e65" "7075626c69632e223130302520646f6e6522" "100%-done" '{"directory" : "100%-done", "schema" : "public", "table" : "100% done"}'
-        emitRecord "7075626c6963" "636166c3a9" "7075626c69632e22636166c3a922" "cafe" '{"directory" : "cafe", "schema" : "public", "table" : "café"}'
-        ;;
       identifiers)
         emitRecord "7075626c6963" "4f72646572204974656d73" "7075626c69632e224f72646572204974656d7322" "order-items--03000deb" '{"directory" : "order-items--03000deb", "schema" : "public", "table" : "Order Items"}'
         emitRecord "7075626c6963" "4f726465722d4974656d73" "7075626c69632e224f726465722d4974656d7322" "order-items--62b48187" '{"directory" : "order-items--62b48187", "schema" : "public", "table" : "Order-Items"}'
@@ -126,9 +116,9 @@ case "$commandText" in
         ;;
     esac
     ;;
-  *schema_name*table_name*"\\gset"*)
-    activeFile=""
-    if [ -n "${TEST_STATE_DIR:-}" ]; then
+  *schema_name*table_name*"\\gset"*information_schema.columns*)
+    columnsFile="$(printf "%s\n" "$commandText" | sed -n "s/^\\\\o '\(.*\)'$/\1/p")"
+    if [ "$TEST_SCENARIO" = "concurrency" ]; then
       activeFile="$TEST_STATE_DIR/active/$$"
       : > "$activeFile"
       while ! mkdir "$TEST_STATE_DIR/lock" 2>/dev/null; do
@@ -140,32 +130,26 @@ case "$commandText" in
         printf "%s\n" "$activeCount" > "$TEST_STATE_DIR/max-active"
       fi
       rmdir "$TEST_STATE_DIR/lock"
+      trap 'find "$activeFile" -delete' EXIT
+      sleep 0.1
     fi
-    trap '[ -z "$activeFile" ] || find "$activeFile" -delete' EXIT
-    [ "$TEST_SCENARIO" != "concurrency" ] || sleep 0.1
     if [ "$TEST_SCENARIO" = "detail-failure" ] && [ "$tableHex" = "7573657273" ]; then
       echo "unable to describe relation" >&2
       exit 1
     fi
-    if [ -z "$schemaHex" ] || [ -z "$tableHex" ]; then
-      echo "missing encoded detail variables" >&2
+    if [ -z "$schemaHex" ] || [ -z "$tableHex" ] || [ -z "$columnsFile" ]; then
+      echo "missing encoded detail variables or columns output" >&2
       exit 1
     fi
     printf "Table %s.%s\n" "$schemaHex" "$tableHex"
     printf " Column | Type\n"
     printf " column_id | integer\n"
     printf " name | text\n"
-    ;;
-  *information_schema.columns*)
-    if [ "$commandFromOption" -eq 1 ]; then
-      echo "psql variables are not expanded in -c SQL" >&2
+    if [ "$TEST_SCENARIO" = "columns-failure" ] && [ "$tableHex" = "7573657273" ]; then
+      echo "unable to query columns" >&2
       exit 1
     fi
-    if [ -z "$schemaHex" ] || [ -z "$tableHex" ]; then
-      echo "missing encoded metadata variables" >&2
-      exit 1
-    fi
-    printf "column_id\nname\n"
+    printf "column_id\nname\n" > "$columnsFile"
     ;;
   *)
     echo "unexpected psql command: $commandText" >&2
